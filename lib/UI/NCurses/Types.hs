@@ -22,6 +22,7 @@ import           Control.Exception (Exception, throwIO)
 import           Control.Monad (liftM, ap)
 import           Control.Monad.Fix (MonadFix, mfix)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
+import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Reader (ReaderT)
 import           Data.Typeable
 import qualified Foreign as F
@@ -29,26 +30,32 @@ import qualified Foreign.C as F
 
 import qualified UI.NCurses.Enums as E
 
+
 -- | A small wrapper around 'IO', to ensure the @ncurses@ library is
 -- initialized while running.
-newtype Curses a = Curses { unCurses :: IO a }
+newtype CursesT m a = CursesT { unCurses :: m a }
 
-instance Monad Curses where
-	return = Curses . return
-	m >>= f = Curses (unCurses m >>= unCurses . f)
+type Curses = CursesT IO
 
-instance MonadFix Curses where
-	mfix f = Curses (mfix (unCurses . f))
+instance Functor m => Functor (CursesT m) where
+	fmap f = CursesT . fmap f . unCurses
 
-instance MonadIO Curses where
-	liftIO = Curses
+instance Applicative m => A.Applicative (CursesT m) where
+	pure = CursesT . pure
+	(CursesT f) <*> (CursesT m) = CursesT $ f <*> m
 
-instance Functor Curses where
-	fmap = liftM
+instance Monad m => Monad (CursesT m) where
+	return = CursesT . return
+	m >>= f = CursesT (unCurses m >>= unCurses . f)
 
-instance A.Applicative Curses where
-	pure = return
-	(<*>) = ap
+instance MonadFix m => MonadFix (CursesT m) where
+	mfix f = CursesT (mfix (unCurses . f))
+
+instance MonadTrans CursesT where
+  lift = CursesT
+
+instance MonadIO m => MonadIO (CursesT m) where
+	liftIO = CursesT . liftIO
 
 newtype Update a = Update { unUpdate :: ReaderT Window Curses a }
 

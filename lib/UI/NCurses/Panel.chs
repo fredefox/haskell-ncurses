@@ -35,6 +35,7 @@ module UI.NCurses.Panel
 	) where
 
 import           Control.Exception (throwIO)
+import           Control.Monad.Trans.Class (lift)
 import           Foreign
 import           Foreign.C
 
@@ -55,7 +56,7 @@ newtype Panel = Panel { panelPtr :: Ptr Panel }
 
 -- | Creates a new 'Panel', on top of the panel stack.
 newPanel :: Window -> Curses Panel
-newPanel win = Curses $ do
+newPanel win = lift $ do
 	p <- {# call new_panel #} win
 	if panelPtr p == nullPtr
 		then throwIO (CursesException "newPanel: new_panel() returned NULL")
@@ -63,16 +64,16 @@ newPanel win = Curses $ do
 
 -- | Permanently removes the given panel from the panel stack.
 deletePanel :: Panel -> Curses ()
-deletePanel p = Curses ({# call del_panel #} p >>= checkRC "deletePanel")
+deletePanel p = lift ({# call del_panel #} p >>= checkRC "deletePanel")
 
 -- | Updates windows to account for the current panel stack order. The user
 -- must call 'render' before changes are drawn to the screen.
 refreshPanels :: Curses ()
-refreshPanels = Curses {#call update_panels #}
+refreshPanels = lift {#call update_panels #}
 
 -- | @panelAbove p@ retrieve the panel above /p/.
 panelAbove :: Panel -> Curses (Maybe Panel)
-panelAbove p = Curses $ do
+panelAbove p = lift $ do
 	ptr <- {# call panel_above #} p
 	return $ if panelPtr ptr == nullPtr
 		then Nothing
@@ -80,7 +81,7 @@ panelAbove p = Curses $ do
 
 -- | @panelAbove p@ retrieve the panel below /p/.
 panelBelow :: Panel -> Curses (Maybe Panel)
-panelBelow p = Curses $ do
+panelBelow p = lift $ do
 	ptr <- {# call panel_below #} p
 	return $ if panelPtr ptr == nullPtr
 		then Nothing
@@ -88,7 +89,7 @@ panelBelow p = Curses $ do
 
 -- | Retrieve the top&#x2013;most panel in the stack.
 panelTop :: Curses (Maybe Panel)
-panelTop = Curses $ do
+panelTop = lift $ do
 	ptr <- {# call panel_below #} (Panel nullPtr)
 	return $ if panelPtr ptr == nullPtr
 		then Nothing
@@ -96,7 +97,7 @@ panelTop = Curses $ do
 
 -- | Retrieve the bottom&#x2013;most panel in the stack.
 panelBottom :: Curses (Maybe Panel)
-panelBottom = Curses $ do
+panelBottom = lift $ do
 	ptr <- {# call panel_above #} (Panel nullPtr)
 	return $ if panelPtr ptr == nullPtr
 		then Nothing
@@ -104,16 +105,16 @@ panelBottom = Curses $ do
 
 -- | Makes a hidden panel visible, and places it on the top of the stack.
 showPanel :: Panel -> Curses ()
-showPanel p = Curses ({# call show_panel #} p >>= checkRC "showPanel")
+showPanel p = lift ({# call show_panel #} p >>= checkRC "showPanel")
 
 -- | Temporarily removes the given panel from the panel stack. Use
 -- 'showPanel' to restore it.
 hidePanel :: Panel -> Curses ()
-hidePanel p = Curses ({# call hide_panel #} p >>= checkRC "hidePanel")
+hidePanel p = lift ({# call hide_panel #} p >>= checkRC "hidePanel")
 
 -- | Checks if the given panel is currently visible.
 panelHidden :: Panel -> Curses Bool
-panelHidden p = Curses (cToBool `fmap` {# call panel_hidden #} p)
+panelHidden p = lift (cToBool `fmap` {# call panel_hidden #} p)
 
 -- | Move the panel so its upper&#x2013;left corner is at the new
 -- coordinates.
@@ -121,24 +122,24 @@ movePanel :: Panel
           -> Integer -- ^ New upper&#x2013;left row
           -> Integer -- ^ New upper&#x2013;left column
           -> Curses ()
-movePanel p row col = Curses $
+movePanel p row col = lift $
 	checkRC "movePanel" =<< {# call move_panel #} p
 		(fromInteger row)
 		(fromInteger col)
 
 -- | Raise a bottom to the top of the stack.
 raisePanel :: Panel -> Curses ()
-raisePanel p = Curses ({# call top_panel #} p >>= checkRC "raisePanel")
+raisePanel p = lift ({# call top_panel #} p >>= checkRC "raisePanel")
 
 -- | Lower a panel to the bottom of the stack.
 lowerPanel :: Panel -> Curses ()
-lowerPanel p = Curses ({# call bottom_panel #} p >>= checkRC "lowerPanel")
+lowerPanel p = lift ({# call bottom_panel #} p >>= checkRC "lowerPanel")
 
 -- | Retrieves which window a panel is drawn to.
 getPanelWindow :: Panel -> Curses Window
-getPanelWindow p = Curses ({# call panel_window #} p)
+getPanelWindow p = lift ({# call panel_window #} p)
 
 -- | Replaces which window a panel is drawn to.
 replacePanelWindow :: Panel -> Window -> Curses ()
-replacePanelWindow p win = Curses $
+replacePanelWindow p win = lift $
 	{# call replace_panel #} p win >>= checkRC "replacePanelWindow"

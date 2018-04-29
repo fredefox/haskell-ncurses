@@ -164,6 +164,8 @@ module UI.NCurses
 
 import           Control.Exception (bracket_, catch, throwIO, try)
 import           Control.Monad (when, unless)
+import           Control.Monad.Trans.Class (lift)
+import           Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Trans.Reader as R
 import           Data.Char (chr, ord)
 import           Data.List (foldl')
@@ -226,7 +228,7 @@ runCurses = bracket_ initCurses {# call endwin #} . unCurses where
 -- | The default window created when @ncurses@ is initialized, also known
 -- as @stdscr@.
 defaultWindow :: Curses Window
-defaultWindow = Curses (Window `fmap` peek c_stdscr)
+defaultWindow = lift (Window `fmap` peek c_stdscr)
 
 foreign import ccall "static &stdscr"
 	c_stdscr :: Ptr (Ptr Window)
@@ -242,7 +244,7 @@ newWindow :: Integer -- ^ Rows
           -> Integer -- ^ Begin Y
           -> Integer -- ^ Begin X
           -> Curses Window
-newWindow rows cols x y = Curses $ do
+newWindow rows cols x y = lift $ do
 	win <- {# call newwin #}
 		(fromInteger rows)
 		(fromInteger cols)
@@ -262,12 +264,12 @@ newWindow rows cols x y = Curses $ do
 -- Note: this computation will not automatically clear the window from the
 -- screen.
 closeWindow :: Window -> Curses ()
-closeWindow win = Curses ({# call delwin #} win >>= checkRC "closeWindow")
+closeWindow win = lift ({# call delwin #} win >>= checkRC "closeWindow")
 
 -- | Create a separate window, initialised with the state of an existing
 -- window.
 cloneWindow :: Window -> Curses Window
-cloneWindow old = Curses $ do
+cloneWindow old = lift $ do
 	win <- {# call dupwin #} old
 	if windowPtr win == nullPtr
 		then throwIO (CursesException "cloneWindow: dupwin() returned NULL")
@@ -279,7 +281,7 @@ cloneWindow old = Curses $ do
 updateWindow :: Window -> Update a -> Curses a
 updateWindow win (Update reader) = do
 	a <- R.runReaderT reader win
-	Curses ({# call wnoutrefresh #} win >>= checkRC "updateWindow")
+	lift ({# call wnoutrefresh #} win >>= checkRC "updateWindow")
 	return a
 
 -- | Moves the window to the given (row,column) coordinate.
@@ -356,7 +358,7 @@ newtype Pad = Pad Window
 newPad :: Integer -- ^ Rows
        -> Integer -- ^ Columns
        -> Curses Pad
-newPad rows cols = Curses $ do
+newPad rows cols = lift $ do
 	win <- {# call newpad #}
 		(fromInteger rows)
 		(fromInteger cols)
@@ -371,7 +373,7 @@ newPad rows cols = Curses $ do
 -- | Close a pad, and free all resources associated with it. Once a
 -- pad has been closed, it is no longer safe to use.
 closePad :: Pad -> Curses ()
-closePad (Pad win) = Curses ({# call delwin #} win >>= checkRC "closePad")
+closePad (Pad win) = lift ({# call delwin #} win >>= checkRC "closePad")
 
 updatePad :: Pad
           -> Integer -- Top-most row of the pad's update region (pminrow).
@@ -384,7 +386,7 @@ updatePad :: Pad
           -> Curses a
 updatePad (Pad win) pminrow pmincol sminrow smincol smaxrow smaxcol (Update reader) = do
 	a <- R.runReaderT reader win
-	Curses $
+	lift $
 		({# call pnoutrefresh #} win
 			(fromInteger pminrow)
 			(fromInteger pmincol)
@@ -416,7 +418,7 @@ cursorPosition = withWindow $ \win -> do
 -- This is the same as 'cursorPosition', but is usable outside
 -- of an Update.
 getCursor :: Window -> Curses (Integer, Integer)
-getCursor win = Curses $ do
+getCursor win = lift $ do
 	row <- {# call getcury #} win
 	col <- {# call getcurx #} win
 	return (toInteger row, toInteger col)
@@ -424,7 +426,7 @@ getCursor win = Curses $ do
 -- | Re&#x2013;draw any portions of the screen which have changed since the
 -- last render.
 render :: Curses ()
-render = Curses ({# call doupdate #} >>= checkRC "render")
+render = lift ({# call doupdate #} >>= checkRC "render")
 
 -- | Set the current foreground and background colors. See 'newColorID'
 -- for how to create color IDs.
@@ -593,7 +595,7 @@ data Color
 
 -- Get the maximum 'Color' supported by the current terminal.
 maxColor :: Curses Integer
-maxColor = Curses $ do
+maxColor = lift $ do
 	count <- toInteger `fmap` peek c_COLORS
 	return (count - 1)
 
@@ -625,11 +627,11 @@ colorToShort x = case x of
 -- | Check if the terminal supports color. If it doesn&#x2019;t,
 -- alternative indicators (such as underlines or bold) should be used.
 supportsColor :: Curses Bool
-supportsColor = Curses (fmap cToBool {# call has_colors #})
+supportsColor = lift (fmap cToBool {# call has_colors #})
 
 -- | Check if the terminal supports changing color defintiions.
 canDefineColor :: Curses Bool
-canDefineColor = Curses (fmap cToBool {# call can_change_color #})
+canDefineColor = lift (fmap cToBool {# call can_change_color #})
 
 -- | Change the definition of an existing color. Use 'canDefineColor' to
 -- determine whether changing color values is possible.
@@ -638,7 +640,7 @@ defineColor :: Color
             -> Integer -- ^ Green (0 &#x2013; 1000)
             -> Integer -- ^ Blue (0 &#x2013; 1000)
             -> Curses ()
-defineColor c r g b = Curses $ do
+defineColor c r g b = lift $ do
 	rc <- {# call init_color #}
 		(colorToShort c)
 		(fromInteger r)
@@ -649,7 +651,7 @@ defineColor c r g b = Curses $ do
 -- | Query the current definition of the given color (see 'defineColor').
 -- The returned tuple is (red, green, blue), with values 0 &#x2013; 1000.
 queryColor :: Color -> Curses (Integer, Integer, Integer)
-queryColor c = Curses $
+queryColor c = lift $
 	alloca $ \pRed ->
 	alloca $ \pGreen ->
 	alloca $ \pBlue -> do
@@ -672,7 +674,7 @@ newColorID :: Color -- ^ Foreground
            -> Integer -- ^ A value /n/, such that
                       -- (0 < /n/ &#x2264; 'maxColorID')
            -> Curses ColorID
-newColorID fg bg n = Curses $ do
+newColorID fg bg n = lift $ do
 	unless (n > 0) $ throwIO (CursesException "newColorID: n must be > 0")
 	maxColor <- unCurses maxColorID
 	unless (n <= maxColor) $ throwIO (CursesException "newColorID: n must be <= maxColorID")
@@ -687,14 +689,14 @@ setColorID :: Color -- ^ Foreground
            -> Color -- ^ Background
            -> ColorID -- ^ The 'ColorID' to change
            -> Curses ()
-setColorID fg bg (ColorID n) = Curses $
+setColorID fg bg (ColorID n) = lift $
 	checkRC "setColorID" =<< {# call init_pair #} n
 		(colorToShort fg)
 		(colorToShort bg)
 
 -- | Get the maximum color ID supported by the current terminal
 maxColorID :: Curses Integer
-maxColorID = Curses $ do
+maxColorID = lift $ do
 	pairs <- toInteger `fmap` peek c_COLOR_PAIRS
 	return (pairs - 1)
 
@@ -869,7 +871,7 @@ data Event
 getEvent :: Window
          -> Maybe Integer -- ^ Timeout, in milliseconds
          -> Curses (Maybe Event)
-getEvent win timeout = Curses io where
+getEvent win timeout = lift io where
 	io = alloca $ \ptr -> do
 		{# call wtimeout #} win $ case timeout of
 			Nothing -> -1
@@ -1175,7 +1177,7 @@ data CursorMode
 -- | Set the current cursor mode to visible, invisible, or \"very visible\".
 -- The previous cursor mode is returned.
 setCursorMode :: CursorMode -> Curses CursorMode
-setCursorMode mode = Curses $ do
+setCursorMode mode = liftIO $ do
 	let intMode = case mode of
 		CursorInvisible -> 0
 		CursorVisible -> 1
@@ -1193,52 +1195,52 @@ setCursorMode mode = Curses $ do
 --
 -- See 'try' for more details.
 tryCurses :: Curses a -> Curses (Either CursesException a)
-tryCurses (Curses io) = Curses (try io)
+tryCurses (CursesT io) = lift (try io)
 
 -- | Handles errors in the given computation by passing them to a callback.
 --
 -- See 'catch' for more details.
 catchCurses :: Curses a -> (CursesException -> Curses a) -> Curses a
-catchCurses (Curses io) fn = Curses (catch io (unCurses . fn))
+catchCurses (CursesT io) fn = lift (catch io (unCurses . fn))
 
 -- | Throws an exception from within Curses handling code. This is useful
 -- for re-throwing errors from within a 'catchCurses' callback.
 --
 -- See 'throwIO' for more details.
 throwCurses :: CursesException -> Curses a
-throwCurses = Curses . throwIO
+throwCurses = lift . throwIO
 
 -- | Runs @raw()@ or @noraw()@
 setRaw :: Bool -> Curses ()
-setRaw set = Curses (io >>= checkRC "setRaw") where
+setRaw set = lift (io >>= checkRC "setRaw") where
 	io = if set then {# call raw #} else {# call noraw #}
 
 -- | Runs @cbreak()@ or @nocbreak()@
 setCBreak :: Bool -> Curses ()
-setCBreak set = Curses (io >>= checkRC "setCBreak") where
+setCBreak set = lift (io >>= checkRC "setCBreak") where
 	io = if set then {# call cbreak #} else {# call nocbreak #}
 
 -- | Runs @echo()@ or @noecho()@
 setEcho :: Bool -> Curses ()
-setEcho set = Curses (io >>= checkRC "setEcho") where
+setEcho set = lift (io >>= checkRC "setEcho") where
 	io = if set then {# call echo #} else {# call noecho #}
 
 -- | Get the output speed of the current terminal, in bits per second.
 baudrate :: Curses Integer
-baudrate = Curses $ do
+baudrate = lift $ do
 	rc <- {# call baudrate as c_baudrate #}
 	checkRC "baudrate" rc
 	return (toInteger rc)
 
 beep :: Curses ()
-beep = Curses ({# call beep as c_beep #} >>= checkRC "beep")
+beep = lift ({# call beep as c_beep #} >>= checkRC "beep")
 
 flash :: Curses ()
-flash = Curses ({# call flash as c_flash #} >>= checkRC "flash")
+flash = lift ({# call flash as c_flash #} >>= checkRC "flash")
 
 -- | Check if the terminal has a mouse
 hasMouse :: Curses Bool
-hasMouse = Curses (fmap cToBool c_hasMouse)
+hasMouse = lift (fmap cToBool c_hasMouse)
 
 foreign import ccall unsafe "hsncurses_has_mouse"
 	c_hasMouse :: IO CInt
@@ -1248,12 +1250,12 @@ enclosed :: Window
          -> Integer -- ^ Row
          -> Integer -- ^ Column
          -> Curses Bool
-enclosed win row col = Curses . fmap cToBool $
+enclosed win row col = lift . fmap cToBool $
 	{# call wenclose #} win (fromInteger row) (fromInteger col)
 
 -- | Return (rows, columns) of current screen
 screenSize :: Curses (Integer, Integer)
-screenSize = Curses $ do
+screenSize = lift $ do
 	rows <- peek c_LINES
 	cols <- peek c_COLS
 	return (toInteger rows, toInteger cols)
@@ -1285,16 +1287,16 @@ setRowsTouched touched start count = withWindow_ "setRowsTouched" $ \win ->
 
 -- | Enable/disable support for special keys.
 setKeypad :: Window -> Bool -> Curses ()
-setKeypad win set = Curses (io >>= checkRC "setKeypad") where
+setKeypad win set = lift (io >>= checkRC "setKeypad") where
 	io = {# call keypad #} win (cFromBool set)
 
 -- | Attempt to resize the terminal to the given number of lines and columns.
 resizeTerminal :: Integer -> Integer -> Curses ()
-resizeTerminal lines cols = Curses (io >>= checkRC "resizeTerminal") where
+resizeTerminal lines cols = lift (io >>= checkRC "resizeTerminal") where
 	io = {# call resizeterm #} (fromInteger lines) (fromInteger cols)
 
 withWindow :: (Window -> IO a) -> Update a
-withWindow io = Update (R.ReaderT (\win -> Curses (io win)))
+withWindow io = Update (R.ReaderT (\win -> lift (io win)))
 
 withWindow_ :: String -> (Window -> IO CInt) -> Update ()
 withWindow_ name io = withWindow $ \win -> io win >>= checkRC name
