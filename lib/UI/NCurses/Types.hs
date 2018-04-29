@@ -1,4 +1,8 @@
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE
+    DeriveDataTypeable
+  , MultiParamTypeClasses
+  , FlexibleInstances
+  , UndecidableInstances #-}
 
 -- Copyright (C) 2010 John Millikin <jmillikin@gmail.com>
 --
@@ -24,6 +28,10 @@ import           Control.Monad.Fix (MonadFix, mfix)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Reader (ReaderT)
+import           Control.Monad.Reader.Class
+import           Control.Monad.Writer.Class
+import           Control.Monad.State.Class
+import           Control.Monad.Error.Class
 import           Data.Typeable
 import qualified Foreign as F
 import qualified Foreign.C as F
@@ -56,6 +64,20 @@ instance MonadTrans CursesT where
 
 instance MonadIO m => MonadIO (CursesT m) where
 	liftIO = CursesT . liftIO
+
+instance MonadReader r m => MonadReader r (CursesT m) where
+  ask   = lift ask
+  local f (CursesT m) = lift $ local f m
+instance MonadWriter w m => MonadWriter w (CursesT m) where
+  writer = lift . writer
+  listen (CursesT m) = lift $ listen m
+  pass   (CursesT m) = lift $ pass   m
+instance MonadState  s m => MonadState  s (CursesT m) where
+  state = lift . state
+  get   = lift get
+instance MonadError  e m => MonadError  e (CursesT m) where
+  throwError = lift . throwError
+  catchError (CursesT m) f = lift $ catchError m (unCurses . f)
 
 newtype Update a = Update { unUpdate :: ReaderT Window Curses a }
 
